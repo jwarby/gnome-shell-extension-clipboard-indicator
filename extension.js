@@ -26,8 +26,13 @@ const TIMEOUT_MS = 1000;
 const MAX_REGISTRY_LENGTH = 15;
 const MAX_ENTRY_LENGTH = 50;
 
+const MODE_NORMAL = 0;
+const MODE_CLEAR = 1;
+
 let _clipboardTimeoutId = null;
 let clipboardHistory = [];
+let currentMode = MODE_NORMAL;
+
 const ClipboardIndicator = Lang.Class({
         Name: 'ClipboardIndicator',
         Extends: PanelMenu.Button,
@@ -35,7 +40,7 @@ const ClipboardIndicator = Lang.Class({
         clipItemsRadioGroup: [],
 
         _init: function() {
-            this.parent(0.0, "ClipboardIndicator");
+            this.parent(0.0, 'ClipboardIndicator');
             let hbox = new St.BoxLayout({ style_class: 'panel-status-menu-box clipboard-indicator-hbox' });
             let icon = new St.Icon({ icon_name: 'edit-cut-symbolic', //'mail-attachment-symbolic',
                                      style_class: 'system-status-icon clipboard-indicator-icon' });
@@ -52,9 +57,22 @@ const ClipboardIndicator = Lang.Class({
             let clipHistory = this._getCache();
             let lastIdx = clipHistory.length - 1;
             let clipItemsArr = this.clipItemsRadioGroup;
+            // Clear mode toggle and separator
+            let clearModeToggle = new PopupMenu.PopupSwitchMenuItem(
+                _('Clear Items'),
+                currentMode === MODE_CLEAR
+            );
             let separator = new PopupMenu.PopupSeparatorMenuItem();
 
+            // Add event listener
+            clearModeToggle.connect(
+                'toggled', Lang.bind(this, this._onClearToggled)
+            );
+
+            // Add the clear mode toggle and separator
+            this.menu.addMenuItem(clearModeToggle);
             this.menu.addMenuItem(separator);
+
             clipHistory.forEach(function (clipItem) {
                 that._addEntry(clipItem);
             });
@@ -73,7 +91,10 @@ const ClipboardIndicator = Lang.Class({
 
             menuItem.clipContents = clipItem;
             menuItem.radioGroup = this.clipItemsRadioGroup;
-            menuItem.buttonPressId = menuItem.actor.connect('button-press-event', Lang.bind(menuItem, this._onMenuItemSelected));
+            menuItem.buttonPressId = menuItem.actor.connect(
+                'button-press-event',
+                Lang.bind(menuItem, this._onMenuItemSelected)
+            );
 
             this.menu.addMenuItem(menuItem);
             if (autoSelect === true) this._selectMenuItem(menuItem);
@@ -92,18 +113,38 @@ const ClipboardIndicator = Lang.Class({
         },
 
         _onMenuItemSelected: function () {
-            var that = this;
+            let that = this;
+
             that.radioGroup.forEach(function (menuItem) {
                 let clipContents = that.clipContents;
 
                 if (menuItem === that && clipContents) {
-                    that.setOrnament(PopupMenu.Ornament.DOT);
+                    menuItem.setOrnament(PopupMenu.Ornament.DOT);
                     Clipboard.set_text(CLIPBOARD_TYPE, clipContents);
                 }
                 else {
                     menuItem.setOrnament(PopupMenu.Ornament.NONE);
                 }
             });
+        },
+
+        _entriesAsCheckBoxes: function() {
+            let that = this;
+
+            this.clipItemsRadioGroup.forEach(function(menuItem) {
+                menuItem.setOrnament(PopupMenu.Ornament.NONE);
+            });
+        },
+
+        _onClearToggled: function(actor, event) {
+            let that = this;
+
+            if (event === true) {
+                this.currentMode = MODE_CLEAR;
+                this._entriesAsCheckBoxes();
+            } else {
+                this.currentMode = MODE_NORMAL;
+            }
         },
 
         _selectMenuItem: function (menuItem) {

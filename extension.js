@@ -7,6 +7,7 @@ const Shell = imports.gi.Shell;
 const St = imports.gi.St;
 const Gtk = imports.gi.Gtk;
 
+const BoxPointer = imports.ui.boxpointer;
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
@@ -32,6 +33,29 @@ const MODE_CLEAR = 1;
 let _clipboardTimeoutId = null;
 let clipboardHistory = [];
 let currentMode = MODE_NORMAL;
+let selectedItem = null;
+
+const PopupSwitchMenuItemNoAutoClose = Lang.Class({
+    Name: 'PopupSwitchMenuItemNoAutoClose',
+    Extends: PopupMenu.PopupSwitchMenuItem,
+
+    activate: function(event) {
+        if (this._switch.actor.mapped) {
+            this.toggle();
+        }
+    }
+});
+
+const PopupClipboardMenuItem = Lang.Class({
+    Name: 'PopupClipboardMenuItem',
+    Extends: PopupMenu.PopupMenuItem,
+
+    activate: function(event) {
+        if (currentMode === MODE_NORMAL) {
+            this.parent(event);
+        }
+    }
+});
 
 const ClipboardIndicator = Lang.Class({
         Name: 'ClipboardIndicator',
@@ -58,7 +82,7 @@ const ClipboardIndicator = Lang.Class({
             let lastIdx = clipHistory.length - 1;
             let clipItemsArr = this.clipItemsRadioGroup;
             // Clear mode toggle and separator
-            let clearModeToggle = new PopupMenu.PopupSwitchMenuItem(
+            let clearModeToggle = new PopupSwitchMenuItemNoAutoClose(
                 _('Clear Items'),
                 currentMode === MODE_CLEAR
             );
@@ -68,6 +92,10 @@ const ClipboardIndicator = Lang.Class({
             clearModeToggle.connect(
                 'toggled', Lang.bind(this, this._onClearToggled)
             );
+
+            clearModeToggle.connect('activate', Lang.bind(this, function() {
+                return;
+            }));
 
             // Add the clear mode toggle and separator
             this.menu.addMenuItem(clearModeToggle);
@@ -86,7 +114,7 @@ const ClipboardIndicator = Lang.Class({
             let shortened = clipItem.substr(0,MAX_ENTRY_LENGTH);
             if (clipItem.length > MAX_ENTRY_LENGTH) shortened += '...';
 
-            let menuItem = new PopupMenu.PopupMenuItem(shortened);
+            let menuItem = new PopupClipboardMenuItem(shortened);
             this.clipItemsRadioGroup.push(menuItem);
 
             menuItem.clipContents = clipItem;
@@ -112,38 +140,73 @@ const ClipboardIndicator = Lang.Class({
             that._updateCache();
         },
 
-        _onMenuItemSelected: function () {
+        _removeCheckedEntries: function() {
+            this.clipItemsRadioGroup = this.clipItemsRadioGroup.filter(
+                function(item) {
+                    if (item._ornament === PopupMenu.Ornament.CHECK) {
+                        item.actor.disconnect(item.buttonPressId);
+                        item.destroy();
+
+                        return false;
+                    }
+
+                    if (item === selectedItem ){
+                        item.setOrnament(PopupMenu.Ornament.DOT);
+                    } else {
+                        item.setOrnament(PopupMenu.Ornament.NONE);
+                    }
+
+                    return true;
+                }
+            );
+
+            this._updateCache();
+        },
+
+        _onMenuItemSelected: function (actor, event) {
             let that = this;
 
             that.radioGroup.forEach(function (menuItem) {
                 let clipContents = that.clipContents;
 
-                if (menuItem === that && clipContents) {
-                    menuItem.setOrnament(PopupMenu.Ornament.DOT);
-                    Clipboard.set_text(CLIPBOARD_TYPE, clipContents);
-                }
-                else {
-                    menuItem.setOrnament(PopupMenu.Ornament.NONE);
+                if (currentMode === MODE_NORMAL) {
+                    if (menuItem === that && clipContents) {
+                        menuItem.setOrnament(PopupMenu.Ornament.DOT);
+                        Clipboard.set_text(CLIPBOARD_TYPE, clipContents);
+                    }
+                    else {
+                        menuItem.setOrnament(PopupMenu.Ornament.NONE);
+                    }
+                } else if (currentMode === MODE_CLEAR) {
+                    if (menuItem === that && clipContents) {
+                        menuItem.setOrnament(PopupMenu.Ornament.CHECK);
+                    } else if (menuItem._ornament !== PopupMenu.Ornament.CHECK) {
+                        menuItem.setOrnament(PopupMenu.Ornament.NONE);
+                    }
                 }
             });
+
+            return currentMode === MODE_NORMAL;
         },
 
-        _entriesAsCheckBoxes: function() {
+        _clearItemOrnaments: function() {
             let that = this;
 
             this.clipItemsRadioGroup.forEach(function(menuItem) {
+                if (menuItem._ornament === PopupMenu.Ornament.DOT) {
+                    selectedItem = menuItem;
+                }
                 menuItem.setOrnament(PopupMenu.Ornament.NONE);
             });
         },
 
         _onClearToggled: function(actor, event) {
-            let that = this;
+            currentMode = (event === true) ? MODE_CLEAR : MODE_NORMAL;
 
-            if (event === true) {
-                this.currentMode = MODE_CLEAR;
-                this._entriesAsCheckBoxes();
+            if (currentMode === MODE_NORMAL) {
+               this. _removeCheckedEntries();
             } else {
-                this.currentMode = MODE_NORMAL;
+                this._clearItemOrnaments();
             }
         },
 

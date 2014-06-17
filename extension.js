@@ -5,6 +5,7 @@ const Mainloop = imports.mainloop;
 const Meta = imports.gi.Meta;
 const Shell = imports.gi.Shell;
 const St = imports.gi.St;
+const Gtk = imports.gi.Gtk;
 
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
@@ -51,7 +52,9 @@ const ClipboardIndicator = Lang.Class({
             let clipHistory = this._getCache();
             let lastIdx = clipHistory.length - 1;
             let clipItemsArr = this.clipItemsRadioGroup;
+            let separator = new PopupMenu.PopupSeparatorMenuItem();
 
+            this.menu.addMenuItem(separator);
             clipHistory.forEach(function (clipItem) {
                 that._addEntry(clipItem);
             });

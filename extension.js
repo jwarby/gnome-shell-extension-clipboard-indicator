@@ -27,31 +27,113 @@ const TIMEOUT_MS = 1000;
 const MAX_REGISTRY_LENGTH = 15;
 const MAX_ENTRY_LENGTH = 50;
 
-const MODE_NORMAL = 0;
-const MODE_CLEAR = 1;
+const STATES = {
+    'normal': {
+        events: {
+            'enter_clear_mode': 'clear'
+        },
+        /* On enter, loop through the items and set the correct ornaments -
+         * 'dot' ornament if the item is the currently selected item; 'none'
+         * if not currently selected
+         */
+        enter: function() {
+            let that = this;
+
+            // If no selected item, choose the last one
+            this.selectedItem = this.selectedItem ||
+                this.clipItemsRadioGroup[this.clipItemsRadioGroup.length - 1]
+
+            this.clipItemsRadioGroup.forEach(function(item, index) {
+                if (that.selectedItem === item) {
+                    item.setOrnament(PopupMenu.Ornament.DOT)
+                } else {
+                    item.setOrnament(PopupMenu.Ornament.NONE);
+                }
+            });
+        },
+        /* On exit, loop through the items and remove their ornamentation.
+         * When an item with a 'dot' ornament is encountered, store the item
+         * as the currently selected item
+         */
+        exit: function() {
+            let that = this;
+
+            this.clipItemsRadioGroup.forEach(function(item, index) {
+                if (item._ornament === PopupMenu.Ornament.DOT) {
+                    that.selectedItem = item;
+                }
+
+                item.setOrnament(PopupMenu.Ornament.NONE);
+            });
+
+            this._updateCache();
+        },
+        data: {
+            ornament: PopupMenu.Ornament.DOT
+        }
+    },
+    'clear': {
+        events: {
+            'exit_clear_mode': 'normal'
+        },
+        enter: function() { },
+        /* On exit, filter the list of items by removing those which have
+         * the 'check' ornament; also remove the rendered item and destroy
+         * the event listeners attached to it.
+         */
+        exit: function() {
+            this.clipItemsRadioGroup = this.clipItemsRadioGroup
+                .filter(function(item) {
+                    if (item._ornament === PopupMenu.Ornament.CHECK) {
+                        item.actor.disconnect(item.buttonPressId);
+                        item.destroy();
+
+                        return false;
+                    }
+
+                    return true;
+                });
+        },
+        data: {
+            ornament: PopupMenu.Ornament.CHECK
+        }
+    }
+};
 
 let _clipboardTimeoutId = null;
 let clipboardHistory = [];
-let currentMode = MODE_NORMAL;
-let selectedItem = null;
 
-const PopupSwitchMenuItemNoAutoClose = Lang.Class({
-    Name: 'PopupSwitchMenuItemNoAutoClose',
+/* Extend the default PopupSwitchMenuItem class so that we can override the
+ * default behaviour of closing the menu on click.
+ */
+const PopupClipboardSwitchMenuItem = Lang.Class({
+    Name: 'PopupClipboardSwitchMenuItem',
     Extends: PopupMenu.PopupSwitchMenuItem,
 
     activate: function(event) {
-        if (this._switch.actor.mapped) {
+        // If toggle is currently on, let the parent event handle it so that
+        // menu gets closed after toggling
+        if (this.state) {
+            this.parent(event);
+        // Otherwise, just do the toggle to the 'on' state, without hiding the
+        // menu afterwards
+        } else if (this._switch.actor.mapped) {
             this.toggle();
         }
     }
 });
 
+/* Extend the default PopupMenuItem class so that we can override the
+ * default behaviour of closing the menu on click.
+ */
 const PopupClipboardMenuItem = Lang.Class({
     Name: 'PopupClipboardMenuItem',
     Extends: PopupMenu.PopupMenuItem,
 
     activate: function(event) {
-        if (currentMode === MODE_NORMAL) {
+        // If in normal mode, allow the event to go through the parent and thus
+        // automatically close the menu
+        if (this._getTopMenu().state === 'normal') {
             this.parent(event);
         }
     }
@@ -62,15 +144,19 @@ const ClipboardIndicator = Lang.Class({
         Extends: PanelMenu.Button,
 
         clipItemsRadioGroup: [],
+        state: 'normal',
 
         _init: function() {
             this.parent(0.0, 'ClipboardIndicator');
+
             let hbox = new St.BoxLayout({ style_class: 'panel-status-menu-box clipboard-indicator-hbox' });
             let icon = new St.Icon({ icon_name: 'edit-cut-symbolic', //'mail-attachment-symbolic',
                                      style_class: 'system-status-icon clipboard-indicator-icon' });
 
             hbox.add_child(icon);
             this.actor.add_child(hbox);
+
+            this.menu.state = this.state;
 
             this._buildMenu();
             this._setupTimeout();
@@ -82,9 +168,9 @@ const ClipboardIndicator = Lang.Class({
             let lastIdx = clipHistory.length - 1;
             let clipItemsArr = this.clipItemsRadioGroup;
             // Clear mode toggle and separator
-            let clearModeToggle = new PopupSwitchMenuItemNoAutoClose(
+            let clearModeToggle = new PopupClipboardSwitchMenuItem(
                 _('Clear Items'),
-                currentMode === MODE_CLEAR
+                that.state === 'clear'
             );
             let separator = new PopupMenu.PopupSeparatorMenuItem();
 
@@ -92,10 +178,6 @@ const ClipboardIndicator = Lang.Class({
             clearModeToggle.connect(
                 'toggled', Lang.bind(this, this._onClearToggled)
             );
-
-            clearModeToggle.connect('activate', Lang.bind(this, function() {
-                return;
-            }));
 
             // Add the clear mode toggle and separator
             this.menu.addMenuItem(clearModeToggle);
@@ -121,7 +203,7 @@ const ClipboardIndicator = Lang.Class({
             menuItem.radioGroup = this.clipItemsRadioGroup;
             menuItem.buttonPressId = menuItem.actor.connect(
                 'button-press-event',
-                Lang.bind(menuItem, this._onMenuItemSelected)
+                Lang.bind(this, this._onMenuItemSelected)
             );
 
             this.menu.addMenuItem(menuItem);
@@ -140,78 +222,53 @@ const ClipboardIndicator = Lang.Class({
             that._updateCache();
         },
 
-        _removeCheckedEntries: function() {
-            this.clipItemsRadioGroup = this.clipItemsRadioGroup.filter(
-                function(item) {
-                    if (item._ornament === PopupMenu.Ornament.CHECK) {
-                        item.actor.disconnect(item.buttonPressId);
-                        item.destroy();
-
-                        return false;
-                    }
-
-                    if (item === selectedItem ){
-                        item.setOrnament(PopupMenu.Ornament.DOT);
-                    } else {
-                        item.setOrnament(PopupMenu.Ornament.NONE);
-                    }
-
-                    return true;
-                }
-            );
-
-            this._updateCache();
-        },
-
         _onMenuItemSelected: function (actor, event) {
             let that = this;
-
-            that.radioGroup.forEach(function (menuItem) {
-                let clipContents = that.clipContents;
-
-                if (currentMode === MODE_NORMAL) {
-                    if (menuItem === that && clipContents) {
-                        menuItem.setOrnament(PopupMenu.Ornament.DOT);
-                        Clipboard.set_text(CLIPBOARD_TYPE, clipContents);
-                    }
-                    else {
-                        menuItem.setOrnament(PopupMenu.Ornament.NONE);
-                    }
-                } else if (currentMode === MODE_CLEAR) {
-                    if (menuItem === that && clipContents) {
-                        menuItem.setOrnament(PopupMenu.Ornament.CHECK);
-                    } else if (menuItem._ornament !== PopupMenu.Ornament.CHECK) {
-                        menuItem.setOrnament(PopupMenu.Ornament.NONE);
-                    }
-                }
-            });
-
-            return currentMode === MODE_NORMAL;
-        },
-
-        _clearItemOrnaments: function() {
-            let that = this;
+            let ornament = STATES[this.state].data.ornament;
 
             this.clipItemsRadioGroup.forEach(function(menuItem) {
-                if (menuItem._ornament === PopupMenu.Ornament.DOT) {
-                    selectedItem = menuItem;
+                let clipContents = menuItem.clipContents;
+
+                if (menuItem.actor === actor && clipContents) {
+                    switch (that.state) {
+                        case 'normal':
+                            Clipboard.set_text(CLIPBOARD_TYPE, clipContents);
+                            break;
+                        case 'clear':
+                            // Allow checked items to be toggled on/off
+                            if (menuItem._ornament === ornament) {
+                                ornament = PopupMenu.Ornament.NONE;
+                            }
+                            break;
+                    }
+
+                    menuItem.setOrnament(ornament);
+                } else if (that.state !== 'clear') {
+                    menuItem.setOrnament(PopupMenu.Ornament.NONE);
                 }
-                menuItem.setOrnament(PopupMenu.Ornament.NONE);
             });
         },
 
         _onClearToggled: function(actor, event) {
-            currentMode = (event === true) ? MODE_CLEAR : MODE_NORMAL;
+            this._consumeEvent(event ? 'enter_clear_mode' : 'exit_clear_mode');
+        },
 
-            if (currentMode === MODE_NORMAL) {
-               this. _removeCheckedEntries();
-            } else {
-                this._clearItemOrnaments();
+        _consumeEvent: function(event) {
+            let state = STATES[this.state];
+            // Test if this state responds to the event
+            if (state.events[event]) {
+                // Run exit function for current state
+                state.exit.call(this);
+                // Set new state
+                this.state = state.events[event];
+                this.menu.state = this.state;
+                // Run enter function for new state
+                STATES[this.state].enter.call(this);
             }
         },
 
         _selectMenuItem: function (menuItem) {
-            Lang.bind(menuItem, this._onMenuItemSelected).call();
+            Lang.bind(this, this._onMenuItemSelected).call(this, menuItem.actor);
         },
 
         _getCache: function () {

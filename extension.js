@@ -26,6 +26,7 @@ const readRegistry = Convenience.readRegistry;
 const TIMEOUT_MS = 1000;
 const MAX_REGISTRY_LENGTH = 15;
 const MAX_ENTRY_LENGTH = 50;
+const ZEBRA_STRIPE_OPACITY = 180;
 
 const STATES = {
     'normal': {
@@ -224,6 +225,11 @@ const ClipboardIndicator = Lang.Class({
         let menuItem = new PopupClipboardMenuItem(shortened);
         this.clipItemsRadioGroup.push(menuItem);
         this._consumeEvent('item_added');
+
+        // Fade even-indexed items for a zebra stripe effect
+        if (this.clipItemsRadioGroup.length % 2 === 0) {
+            menuItem.actor.opacity = ZEBRA_STRIPE_OPACITY;
+        }
 
         menuItem.clipContents = clipItem;
         menuItem.radioGroup = this.clipItemsRadioGroup;

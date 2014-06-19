@@ -86,17 +86,11 @@ const STATES = {
         exit: function() {
             let that = this;
 
-            // Stop the timeout whilst we delete
-            this._clearTimeout();
-
             this.clipItemsRadioGroup.forEach(function(item, index) {
                 if (item._ornament === PopupMenu.Ornament.CHECK) {
                     that._destroyEntry(item);
                 }
             });
-
-            // Restart the timeout
-            this._setupTimeout();
         },
         data: {
             ornament: PopupMenu.Ornament.CHECK
@@ -347,10 +341,6 @@ const ClipboardIndicator = Lang.Class({
             that._refreshIndicator();
             if (recurse) that._setupTimeout();
         });
-    },
-
-    _clearTimeout: function () {
-        Mainloop.source_remove(_clipboardTimeoutId);
     },
 
     _getLastItem: function() {

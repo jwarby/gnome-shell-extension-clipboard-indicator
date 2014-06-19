@@ -220,11 +220,6 @@ const ClipboardIndicator = Lang.Class({
         this.clipItemsRadioGroup.push(menuItem);
         this._consumeEvent('item_added');
 
-        // Fade even-indexed items for a zebra stripe effect
-        if (this.clipItemsRadioGroup.length % 2 === 0) {
-            menuItem.actor.opacity = ZEBRA_STRIPE_OPACITY;
-        }
-
         menuItem.clipContents = clipItem;
         menuItem.radioGroup = this.clipItemsRadioGroup;
         menuItem.buttonPressId = menuItem.actor.connect(
@@ -235,6 +230,18 @@ const ClipboardIndicator = Lang.Class({
         this.menu.addMenuItem(menuItem);
         if (autoSelect === true) this._selectMenuItem(menuItem);
         this._updateCache();
+        this._updateZebraStriping();
+    },
+
+    _updateZebraStriping: function () {
+        this.clipItemsRadioGroup.forEach(function (menuItem, index) {
+            // Fade even-indexed items for a zebra stripe effect
+            if (index % 2 === 0) {
+                menuItem.actor.opacity = ZEBRA_STRIPE_OPACITY;
+            } else {
+                menuItem.actor.opacity = 255;
+            }
+        });
     },
 
     _removeOldestEntries: function () {
@@ -258,6 +265,7 @@ const ClipboardIndicator = Lang.Class({
             });
 
         this._updateCache();
+        this._updateZebraStriping();
     },
 
     _onMenuItemSelected: function (actor, event) {

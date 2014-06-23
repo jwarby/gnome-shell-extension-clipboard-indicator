@@ -12,6 +12,7 @@ const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 const CheckBox = imports.ui.checkBox.CheckBox;
+const DND = imports.ui.dnd;
 
 const Clipboard = St.Clipboard.get_default();
 const CLIPBOARD_TYPE = St.ClipboardType.CLIPBOARD;
@@ -138,19 +139,18 @@ const PopupClipboardSwitchMenuItem = Lang.Class({
     }
 });
 
-/* Extend the default PopupMenuItem class so that we can override the
- * default behaviour of closing the menu on click.
- */
-const PopupClipboardMenuItem = Lang.Class({
-    Name: 'PopupClipboardMenuItem',
-    Extends: PopupMenu.PopupMenuItem,
+const ClipboardStickyArea = Lang.Class({
+    Name: 'ClipboardStickyArea',
+    Extends: PopupMenu.PopupMenuSection,
 
-    activate: function(event) {
-        // If in normal mode, allow the event to go through the parent and thus
-        // automatically close the menu
-        if (this._getTopMenu().state === 'normal') {
-            this.parent(event);
+    acceptDrop: function(source, actor, x, y) {
+        if (source instanceof PopupMenu.PopupMenuItem) {
+            source.actor.reparent(this.actor);
+            source.sticky = true;
+            return true;
         }
+
+        return false;
     }
 });
 
@@ -181,6 +181,10 @@ const ClipboardIndicator = Lang.Class({
         this._setupTimeout();
     },
 
+    _onDragEnd: function () {
+        this._updateZebraStriping();
+    },
+
     _buildMenu: function () {
         let that = this;
         let clipHistory = this._getCache();
@@ -198,6 +202,9 @@ const ClipboardIndicator = Lang.Class({
             }
         );
 
+        this.stickyArea = new ClipboardStickyArea();
+        this.stickyArea.addMenuItem(this.stickyAreaPlaceholder);
+
         // Set sticky placeholder properties
         this.stickyAreaPlaceholder.actor.opacity = ZEBRA_STRIPE_OPACITY;
         this.stickyAreaPlaceholder.actor.add_style_class_name(
@@ -212,7 +219,7 @@ const ClipboardIndicator = Lang.Class({
         // Add the clear mode toggle, sticky area placeholder and separator
         this.menu.addMenuItem(this.clearModeToggle);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this.menu.addMenuItem(this.stickyAreaPlaceholder);
+        this.menu.addMenuItem(this.stickyArea);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         clipHistory.forEach(function (clipItem) {
@@ -230,15 +237,23 @@ const ClipboardIndicator = Lang.Class({
         let shortened = clipItem.substr(0,MAX_ENTRY_LENGTH);
         if (clipItem.length > MAX_ENTRY_LENGTH) shortened += '...';
 
-        let menuItem = new PopupClipboardMenuItem(shortened);
+        let menuItem = new PopupMenu.PopupMenuItem(shortened, {
+            activate: false
+        });
         this.clipItemsRadioGroup.push(menuItem);
         this._consumeEvent('item_added');
 
+        // Draggable behaviour
+        menuItem.dragActor = DND.makeDraggable(menuItem.actor);
+        menuItem.dragActor.connect(
+            'drag-end', Lang.bind(this, this._onDragEnd)
+        );
+
         menuItem.clipContents = clipItem;
         menuItem.radioGroup = this.clipItemsRadioGroup;
-        menuItem.buttonPressId = menuItem.actor.connect(
-            'button-press-event',
-            Lang.bind(this, this._onMenuItemSelected)
+        menuItem.buttonReleaseId = menuItem.actor.connect(
+            'button-release-event',
+            Lang.bind(this, this._onButtonReleased)
         );
 
         this.menu.addMenuItem(menuItem);
@@ -248,14 +263,16 @@ const ClipboardIndicator = Lang.Class({
     },
 
     _updateZebraStriping: function () {
-        this.clipItemsRadioGroup.forEach(function (menuItem, index) {
-            // Fade even-indexed items for a zebra stripe effect
-            if (index % 2 === 0) {
-                menuItem.actor.opacity = ZEBRA_STRIPE_OPACITY;
-            } else {
-                menuItem.actor.opacity = 255;
-            }
-        });
+        for (let menu of [this.menu, this.stickyArea]) {
+            menu._getMenuItems().forEach(function (menuItem, index) {
+                // Fade even-indexed items for a zebra stripe effect
+                if (index % 2 === 0) {
+                    menuItem.actor.opacity = ZEBRA_STRIPE_OPACITY;
+                } else {
+                    menuItem.actor.opacity = 255;
+                }
+            });
+        }
     },
 
     _removeOldestEntries: function () {
@@ -269,7 +286,7 @@ const ClipboardIndicator = Lang.Class({
             this.selectedItem = null;
         }
 
-        entry.actor.disconnect(entry.buttonPressId);
+        entry.actor.disconnect(entry.buttonReleaseId);
         entry.destroy();
 
         // Remove from list
@@ -280,6 +297,17 @@ const ClipboardIndicator = Lang.Class({
 
         this._updateCache();
         this._updateZebraStriping();
+    },
+
+    _onButtonReleased: function (actor, event) {
+        let that = this;
+        this._onMenuItemSelected(actor, event);
+
+        if (this.state !== 'clear_mode') {
+            Mainloop.timeout_add(100, function() {
+                that.menu.close(BoxPointer.PopupAnimation.FULL);
+            });
+        }
     },
 
     _onMenuItemSelected: function (actor, event) {

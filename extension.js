@@ -185,21 +185,35 @@ const ClipboardIndicator = Lang.Class({
         let that = this;
         let clipHistory = this._getCache();
         let clipItemsArr = this.clipItemsRadioGroup;
-        // Clear mode toggle and separator
+        // Clear mode toggle
         this.clearModeToggle = new PopupClipboardSwitchMenuItem(
             _('Clear Items'),
             that.state === 'clear_mode'
         );
-        let separator = new PopupMenu.PopupSeparatorMenuItem();
+        this.stickyAreaPlaceholder = new PopupMenu.PopupMenuItem(
+            _('Drag items here to sticky them'),
+            {
+                activate: false,
+                reactive: false
+            }
+        );
 
-        // Add event listener
+        // Set sticky placeholder properties
+        this.stickyAreaPlaceholder.actor.opacity = ZEBRA_STRIPE_OPACITY;
+        this.stickyAreaPlaceholder.actor.add_style_class_name(
+            'clipboard-indicator-placeholder'
+        );
+
+        // Add event listener for clear toggle
         this.clearModeToggle.connect(
             'toggled', Lang.bind(this, this._onClearToggled)
         );
 
-        // Add the clear mode toggle and separator
+        // Add the clear mode toggle, sticky area placeholder and separator
         this.menu.addMenuItem(this.clearModeToggle);
-        this.menu.addMenuItem(separator);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this.menu.addMenuItem(this.stickyAreaPlaceholder);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         clipHistory.forEach(function (clipItem) {
             that._addEntry(clipItem);

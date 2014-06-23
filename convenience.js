@@ -41,6 +41,8 @@ function dbPrintObj (name, obj, recurse, _indent) {
 function writeRegistry (registry) {
     let textContent = JSON.stringify(registry);
 
+    log(textContent);
+
     // Make sure dir exists
     GLib.mkdir_with_parents(REGISTRY_DIR, parseInt('0775', 8));
 

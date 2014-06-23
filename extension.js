@@ -348,9 +348,14 @@ const ClipboardIndicator = Lang.Class({
             let registry = that.clipItemsRadioGroup.map(function (menuItem) {
                 return menuItem.clipContents;
             });
-            if (text && registry.indexOf(text) < 0) {
-                that._addEntry(text, true);
-                that._removeOldestEntries();
+            if (text) {
+                let index = registry.indexOf(text);
+                if (index === -1) {
+                    that._addEntry(text, true);
+                    that._removeOldestEntries();
+                } else if (that.state === 'normal') {
+                    that._selectMenuItem(that.clipItemsRadioGroup[index]);
+                }
             }
         });
     },

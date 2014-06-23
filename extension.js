@@ -105,12 +105,12 @@ const STATES = {
          */
         enter: function () {
             Clipboard.set_text(CLIPBOARD_TYPE, '');
-            this.clearModeToggle.actor.hide();
+            this.actor.hide();
         },
         /* On exit, re-enable the clear mode toggle
          */
         exit: function () {
-            this.clearModeToggle.actor.show();
+            this.actor.show();
         }
     }
 };

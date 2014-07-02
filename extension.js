@@ -1,17 +1,11 @@
-const Clutter = imports.gi.Clutter;
-const Gio = imports.gi.Gio;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
-const Meta = imports.gi.Meta;
-const Shell = imports.gi.Shell;
 const St = imports.gi.St;
-const Gtk = imports.gi.Gtk;
 
 const BoxPointer = imports.ui.boxpointer;
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
-const CheckBox = imports.ui.checkBox.CheckBox;
 const DND = imports.ui.dnd;
 
 const Clipboard = St.Clipboard.get_default();
@@ -26,14 +20,17 @@ const readRegistry = Convenience.readRegistry;
 
 const TIMEOUT_MS = 1000;
 const MAX_REGISTRY_LENGTH = 15;
-const MAX_ENTRY_LENGTH = 50;
 const ZEBRA_STRIPE_OPACITY = 180;
+
+const ClipboardStickySection = Me.imports.clipboardStickySection.ClipboardStickySection;
+const ClipboardRemoveSection = Me.imports.clipboardRemoveSection.ClipboardRemoveSection;
+const ClipboardMenuItem = Me.imports.clipboardMenuItem.ClipboardMenuItem;
 
 const STATES = {
     'normal': {
         events: {
-            'enter_clear_mode': 'clear_mode',
-            'list_emptied': 'empty'
+            'list_emptied': 'empty',
+            'item_drag_start': 'dragging'
         },
         /* On enter, loop through the items and set the correct ornaments -
          * 'dot' ornament if the item is the currently selected item; 'none'
@@ -46,7 +43,7 @@ const STATES = {
             this.selectedItem = this.selectedItem || this._getLastItem();
 
             if (!this.selectedItem) {
-                this._consumeEvent('list_emptied');
+                consumeEvent('list_emptied');
                 return;
             }
 
@@ -64,38 +61,7 @@ const STATES = {
          * When an item with a 'dot' ornament is encountered, store the item
          * as the currently selected item
          */
-        exit: function() {
-            let that = this;
-
-            this.clipItemsRadioGroup.forEach(function(item, index) {
-                item.setOrnament(PopupMenu.Ornament.NONE);
-            });
-        },
-        data: {
-            ornament: PopupMenu.Ornament.DOT
-        }
-    },
-    'clear_mode': {
-        events: {
-            'exit_clear_mode': 'normal'
-        },
-        enter: function() { },
-        /* On exit, filter the list of items by removing those which have
-         * the 'check' ornament; also remove the rendered item and destroy
-         * the event listeners attached to it.
-         */
-        exit: function() {
-            let that = this;
-
-            this.clipItemsRadioGroup.forEach(function(item, index) {
-                if (item._ornament === PopupMenu.Ornament.CHECK) {
-                    that._destroyEntry(item);
-                }
-            });
-        },
-        data: {
-            ornament: PopupMenu.Ornament.CHECK
-        }
+        exit: function() { }
     },
     'empty': {
         events: {
@@ -105,7 +71,6 @@ const STATES = {
          * the clear mode toggle.
          */
         enter: function () {
-            Clipboard.set_text(CLIPBOARD_TYPE, '');
             this.actor.hide();
         },
         /* On exit, re-enable the clear mode toggle
@@ -113,46 +78,30 @@ const STATES = {
         exit: function () {
             this.actor.show();
         }
+    },
+    'dragging': {
+        events: {
+            'item_drag_end': 'normal'
+        },
+        enter: function () {
+            this._dragMonitor = {
+                dragMotion: Lang.bind(this, this._onDragMotion)
+            };
+            DND.addDragMonitor(this._dragMonitor);
+        },
+        exit: function () {
+            this._updateZebraStriping();
+            this._updateCache();
+            this.removeSection._onHoverOff();
+
+            DND.removeDragMonitor(this._dragMonitor);
+        }
     }
 };
 
 let _clipboardTimeoutId = null;
 let clipboardHistory = [];
 
-/* Extend the default PopupSwitchMenuItem class so that we can override the
- * default behaviour of closing the menu on click.
- */
-const PopupClipboardSwitchMenuItem = Lang.Class({
-    Name: 'PopupClipboardSwitchMenuItem',
-    Extends: PopupMenu.PopupSwitchMenuItem,
-
-    activate: function(event) {
-        // If toggle is currently on, let the parent event handle it so that
-        // menu gets closed after toggling
-        if (this.state) {
-            this.parent(event);
-        // Otherwise, just do the toggle to the 'on' state, without hiding the
-        // menu afterwards
-        } else if (this._switch.actor.mapped) {
-            this.toggle();
-        }
-    }
-});
-
-const ClipboardStickyArea = Lang.Class({
-    Name: 'ClipboardStickyArea',
-    Extends: PopupMenu.PopupMenuSection,
-
-    acceptDrop: function(source, actor, x, y) {
-        if (source instanceof PopupMenu.PopupMenuItem) {
-            source.actor.reparent(this.actor);
-            source.sticky = true;
-            return true;
-        }
-
-        return false;
-    }
-});
 
 const ClipboardIndicator = Lang.Class({
     Name: 'ClipboardIndicator',
@@ -176,95 +125,102 @@ const ClipboardIndicator = Lang.Class({
         this.actor.add_child(hbox);
 
         this.menu.state = this.state;
+        this.menu.actor.add_style_class_name('clipboard-indicator-menu');
+
+        this.menu._clipboardInstance = this;
 
         this._buildMenu();
         this._setupTimeout();
     },
 
+    _onDragStart: function () {
+        consumeEvent('item_drag_start');
+    },
+
+    _onDragMotion: function (dragEvent) {
+        if (this.removeSection.box.contains(dragEvent.targetActor)) {
+            this.removeSection._onHoverOn();
+        } else {
+            this.removeSection._onHoverOff();
+        }
+
+        return DND.DragMotionResult.CONTINUE;
+    },
+
     _onDragEnd: function () {
-        this._updateZebraStriping();
+        consumeEvent('item_drag_end');
     },
 
     _buildMenu: function () {
         let that = this;
-        let clipHistory = this._getCache();
-        let clipItemsArr = this.clipItemsRadioGroup;
-        // Clear mode toggle
-        this.clearModeToggle = new PopupClipboardSwitchMenuItem(
-            _('Clear Items'),
-            that.state === 'clear_mode'
-        );
-        this.stickyAreaPlaceholder = new PopupMenu.PopupMenuItem(
-            _('Drag items here to sticky them'),
-            {
-                activate: false,
-                reactive: false
-            }
-        );
 
-        this.stickyArea = new ClipboardStickyArea();
-        this.stickyArea.addMenuItem(this.stickyAreaPlaceholder);
+        this.removeSection = new ClipboardRemoveSection();
+        this.stickySection = new ClipboardStickySection();
 
-        // Set sticky placeholder properties
-        this.stickyAreaPlaceholder.actor.opacity = ZEBRA_STRIPE_OPACITY;
-        this.stickyAreaPlaceholder.actor.add_style_class_name(
-            'clipboard-indicator-placeholder'
+        this.removeSection.connect(
+            'item-dropped', Lang.bind(this, this._onDragEnd)
         );
-
-        // Add event listener for clear toggle
-        this.clearModeToggle.connect(
-            'toggled', Lang.bind(this, this._onClearToggled)
-        );
-
         // Add the clear mode toggle, sticky area placeholder and separator
-        this.menu.addMenuItem(this.clearModeToggle);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this.menu.addMenuItem(this.stickyArea);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        for (let menu of [this.removeSection, this.stickySection]) {
+            this.menu.addMenuItem(menu);
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        }
 
-        clipHistory.forEach(function (clipItem) {
+        this._getCache().forEach(function (clipItem) {
             that._addEntry(clipItem);
         });
 
         if (this._getLastItem()) {
             this._selectMenuItem(this._getLastItem());
         } else {
-            this._consumeEvent('list_emptied');
+            consumeEvent('list_emptied');
         }
     },
 
     _addEntry: function (clipItem, autoSelect) {
-        let shortened = clipItem.substr(0,MAX_ENTRY_LENGTH);
-        if (clipItem.length > MAX_ENTRY_LENGTH) shortened += '...';
-
-        let menuItem = new PopupMenu.PopupMenuItem(shortened, {
-            activate: false
+        // Create the new entry
+        let menuItem = new ClipboardMenuItem({
+            text: clipItem.text,
+            sticky: clipItem.sticky,
+            selected: autoSelect
         });
+
+        // Push to list of items and consume item added event
         this.clipItemsRadioGroup.push(menuItem);
-        this._consumeEvent('item_added');
+        consumeEvent('item_added');
 
         // Draggable behaviour
-        menuItem.dragActor = DND.makeDraggable(menuItem.actor);
+        menuItem.dragActor.connect(
+            'drag-begin', Lang.bind(this, this._onDragStart)
+        );
         menuItem.dragActor.connect(
             'drag-end', Lang.bind(this, this._onDragEnd)
         );
 
-        menuItem.clipContents = clipItem;
         menuItem.radioGroup = this.clipItemsRadioGroup;
         menuItem.buttonReleaseId = menuItem.actor.connect(
             'button-release-event',
             Lang.bind(this, this._onButtonReleased)
         );
 
-        this.menu.addMenuItem(menuItem);
+        if (menuItem.isSticky()) {
+            this.stickySection.addMenuItem(menuItem);
+        } else {
+            this.menu.addMenuItem(menuItem);
+        }
+
         if (autoSelect === true) this._selectMenuItem(menuItem);
         this._updateCache();
         this._updateZebraStriping();
+        this._removeOldestEntries();
     },
 
     _updateZebraStriping: function () {
-        for (let menu of [this.menu, this.stickyArea]) {
+        for (let menu of [this.menu, this.stickySection]) {
             menu._getMenuItems().forEach(function (menuItem, index) {
+                if (menuItem instanceof PopupMenu.PopupMenuSection) {
+                    return;
+                }
                 // Fade even-indexed items for a zebra stripe effect
                 if (index % 2 === 0) {
                     menuItem.actor.opacity = ZEBRA_STRIPE_OPACITY;
@@ -276,8 +232,12 @@ const ClipboardIndicator = Lang.Class({
     },
 
     _removeOldestEntries: function () {
-        while (this.clipItemsRadioGroup.length > MAX_REGISTRY_LENGTH) {
-            this._destroyEntry(this.clipItemsRadioGroup.shift());
+        let filtered = this.clipItemsRadioGroup.filter(function(item, index) {
+            return !item.isSticky();
+        });
+
+        while (filtered.length > MAX_REGISTRY_LENGTH) {
+            this._destroyEntry(filtered.shift());
         }
     },
 
@@ -297,63 +257,34 @@ const ClipboardIndicator = Lang.Class({
 
         this._updateCache();
         this._updateZebraStriping();
+
+        if (this.stickySection.isEmpty()) {
+            this.stickySection._addPlaceholder();
+        }
     },
 
     _onButtonReleased: function (actor, event) {
         let that = this;
         this._onMenuItemSelected(actor, event);
 
-        if (this.state !== 'clear_mode') {
-            Mainloop.timeout_add(100, function() {
-                that.menu.close(BoxPointer.PopupAnimation.FULL);
-            });
-        }
+        Mainloop.timeout_add(100, function() {
+            that.menu.close(BoxPointer.PopupAnimation.FULL);
+        });
     },
 
     _onMenuItemSelected: function (actor, event) {
         let that = this;
-        let ornament = STATES[this.state].data.ornament;
 
         this.clipItemsRadioGroup.forEach(function (menuItem) {
-            let clipContents = menuItem.clipContents;
+            let clipContents = menuItem.getText();
 
             if (menuItem.actor === actor && clipContents) {
-                switch (that.state) {
-                    case 'normal':
-                        that.selectedItem = menuItem;
-                        Clipboard.set_text(CLIPBOARD_TYPE, clipContents);
-                        break;
-                    case 'clear_mode':
-                        // Allow checked items to be toggled on/off
-                        if (menuItem._ornament === ornament) {
-                            ornament = PopupMenu.Ornament.NONE;
-                        }
-                        break;
-                }
-
-                menuItem.setOrnament(ornament);
-            } else if (that.state !== 'clear_mode') {
-                menuItem.setOrnament(PopupMenu.Ornament.NONE);
+                that.selectedItem = menuItem;
+                menuItem.setSelected(true);
+            } else {
+                menuItem.setSelected(false);
             }
         });
-    },
-
-    _onClearToggled: function(actor, event) {
-        this._consumeEvent(event ? 'enter_clear_mode' : 'exit_clear_mode');
-    },
-
-    _consumeEvent: function(event) {
-        let state = STATES[this.state];
-        // Test if this state responds to the event
-        if (state.events[event]) {
-            // Run exit function for current state
-            state.exit.call(this);
-            // Set new state
-            this.state = state.events[event];
-            this.menu.state = this.state;
-            // Run enter function for new state
-            STATES[this.state].enter.call(this);
-        }
     },
 
     _selectMenuItem: function (menuItem) {
@@ -366,7 +297,7 @@ const ClipboardIndicator = Lang.Class({
 
     _updateCache: function () {
         writeRegistry(this.clipItemsRadioGroup.map(function (menuItem) {
-            return menuItem.clipContents;
+            return menuItem.toJSON();
         }));
     },
 
@@ -374,13 +305,15 @@ const ClipboardIndicator = Lang.Class({
         let that = this;
         Clipboard.get_text(CLIPBOARD_TYPE, function (clipBoard, text) {
             let registry = that.clipItemsRadioGroup.map(function (menuItem) {
-                return menuItem.clipContents;
+                return menuItem.getText();
             });
             if (text) {
                 let index = registry.indexOf(text);
                 if (index === -1) {
-                    that._addEntry(text, true);
-                    that._removeOldestEntries();
+                    that._addEntry({
+                        text: text,
+                        sticky: false
+                    }, true);
                 } else if (that.state === 'normal') {
                     that._selectMenuItem(that.clipItemsRadioGroup[index]);
                 }
@@ -394,7 +327,7 @@ const ClipboardIndicator = Lang.Class({
 
         _clipboardTimeoutId = Mainloop.timeout_add(TIMEOUT_MS, function () {
             that._refreshIndicator();
-            if (recurse) that._setupTimeout();
+            recurse && that._setupTimeout();
         });
     },
 
@@ -417,4 +350,20 @@ function enable () {
 function disable () {
     clipboardIndicator.destroy();
     if (_clipboardTimeoutId) Mainloop.source_remove(_clipboardTimeoutId);
+}
+
+function consumeEvent (event) {
+    if (!clipboardIndicator) { return; }
+
+    let state = STATES[clipboardIndicator.state];
+    // Test if clipboardIndicator state responds to the event
+    if (state.events[event]) {
+        // Run exit function for current state
+        state.exit.call(clipboardIndicator);
+        // Set new state
+        clipboardIndicator.state = state.events[event];
+        clipboardIndicator.menu.state = clipboardIndicator.state;
+        // Run enter function for new state
+        STATES[clipboardIndicator.state].enter.call(clipboardIndicator);
+    }
 }

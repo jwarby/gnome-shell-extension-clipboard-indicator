@@ -1,3 +1,19 @@
-.clipboard-indicator-placeholder {
+.clipboard-indicator-menu {
+  width: 30em;
+  max-width: 30em;
+}
+.clipboard-indicator-menu .clipboard-indicator-placeholder {
   font-style: italic;
+  opacity: 0.8;
+}
+.clipboard-indicator-menu .clipboard-indicator-section-title {
+  font-weight: bold;
+}
+.clipboard-indicator-menu .clipboard-indicator-remove-icon {
+  icon-size: 1.5em;
+  padding-left: 11.5em;
+  opacity: 1;
+}
+.clipboard-indicator-menu .clipboard-indicator-remove-icon:drag-hover {
+  color: #ff0000;
 }

@@ -6,7 +6,7 @@ const ExtensionUtils = imports.misc.extensionUtils;
 const Me = ExtensionUtils.getCurrentExtension();
 const Convenience = Me.imports.convenience;
 
-const ClipboardMenuItem = Me.imports.clipboardMenuItem.ClipboardMenuItem;
+const ClipboardMenuItem = Me.imports.models.clipboardMenuItem.ClipboardMenuItem;
 
 const ClipboardStickySection = Lang.Class({
     Name: 'ClipboardStickySection',

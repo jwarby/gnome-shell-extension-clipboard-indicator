@@ -22,9 +22,9 @@ const TIMEOUT_MS = 1000;
 const MAX_REGISTRY_LENGTH = 15;
 const ZEBRA_STRIPE_OPACITY = 180;
 
-const ClipboardStickySection = Me.imports.clipboardStickySection.ClipboardStickySection;
-const ClipboardRemoveSection = Me.imports.clipboardRemoveSection.ClipboardRemoveSection;
-const ClipboardMenuItem = Me.imports.clipboardMenuItem.ClipboardMenuItem;
+const ClipboardStickySection = Me.imports.models.clipboardStickySection.ClipboardStickySection;
+const ClipboardRemoveSection = Me.imports.models.clipboardRemoveSection.ClipboardRemoveSection;
+const ClipboardMenuItem = Me.imports.models.clipboardMenuItem.ClipboardMenuItem;
 
 const STATES = {
     'normal': {

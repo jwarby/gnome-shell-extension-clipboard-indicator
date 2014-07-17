@@ -177,7 +177,10 @@ const ClipboardIndicator = Lang.Class({
         }
     },
 
-    _addEntry: function (clipItem, autoSelect) {
+    _addEntry: function (clipItem, options) {
+        options = options || {};
+        let autoSelect = options.auto_select != null ?
+            options.auto_select : false;
         // Create the new entry
         let menuItem = new ClipboardMenuItem({
             text: clipItem.text,
@@ -209,7 +212,7 @@ const ClipboardIndicator = Lang.Class({
             this.menu.addMenuItem(menuItem);
         }
 
-        if (autoSelect === true) this._selectMenuItem(menuItem);
+        if (autoSelect === true) this._selectMenuItem(menuItem, options);
         this._updateCache();
         this._updateZebraStriping();
         this._removeOldestEntries();
@@ -272,7 +275,7 @@ const ClipboardIndicator = Lang.Class({
         });
     },
 
-    _onMenuItemSelected: function (actor, event) {
+    _onMenuItemSelected: function (actor, event, options) {
         let that = this;
 
         this.clipItemsRadioGroup.forEach(function (menuItem) {
@@ -280,15 +283,16 @@ const ClipboardIndicator = Lang.Class({
 
             if (menuItem.actor === actor && clipContents) {
                 that.selectedItem = menuItem;
-                menuItem.setSelected(true);
+                menuItem.setSelected(true, options);
             } else {
-                menuItem.setSelected(false);
+                menuItem.setSelected(false, options);
             }
         });
     },
 
-    _selectMenuItem: function (menuItem) {
-        Lang.bind(this, this._onMenuItemSelected).call(this, menuItem.actor);
+    _selectMenuItem: function (menuItem, options) {
+        Lang.bind(this, this._onMenuItemSelected).call(
+            this, menuItem.actor, null, options);
     },
 
     _getCache: function () {
@@ -313,9 +317,14 @@ const ClipboardIndicator = Lang.Class({
                     that._addEntry({
                         text: text,
                         sticky: false
-                    }, true);
+                    }, {
+                        auto_select: true,
+                        copy_to_clipboard: false
+                    });
                 } else if (that.state === 'normal') {
-                    that._selectMenuItem(that.clipItemsRadioGroup[index]);
+                    that._selectMenuItem(that.clipItemsRadioGroup[index], {
+                        copy_to_clipboard: false
+                    });
                 }
             }
         });

@@ -50,12 +50,18 @@ const ClipboardMenuItem = Lang.Class({
         this.parent();
     },
 
-    setSelected: function(selected) {
+    setSelected: function(selected, options) {
+        options = options || {};
         this.selected = !!(selected);
+        let copy = options.copy_to_clipboard != null ?
+            options.copy_to_clipboard : true;
 
         if (this.selected) {
-            Clipboard.set_text(CLIPBOARD_TYPE, this.text);
             this.setOrnament(PopupMenu.Ornament.DOT);
+
+            if (copy) {
+                Clipboard.set_text(CLIPBOARD_TYPE, this.text);
+            }
         } else {
             this.setOrnament(PopupMenu.Ornament.NONE);
         }

@@ -1,5 +1,7 @@
 const GLib = imports.gi.GLib;
 const FileTest = GLib.FileTest;
+const Gio = imports.gi.Gio;
+const St = imports.gi.St;
 
 const ExtensionUtils = imports.misc.extensionUtils;
 const Me = ExtensionUtils.getCurrentExtension();
@@ -53,9 +55,29 @@ function readRegistry () {
         let fileContent = GLib.file_get_contents(REGISTRY_PATH)[1];
         let textContent = fileContent.toString().trim();
 
-        return JSON.parse(textContent);
+        let parsed = JSON.parse(textContent);
+
+        // Handle legacy data
+        if (typeof parsed[0] === 'string') {
+            return parsed.map(function(item, index) {
+                return {
+                    text: item,
+                    sticky: false
+                };
+            });
+        } else {
+            return parsed;
+        }
     }
     else {
         return [];
     }
+}
+
+function getIconImage (path, width = 16, height = 16) {
+    let file = Gio.file_new_for_path(Me.path + path);
+
+    return St.TextureCache.get_default().load_uri_async(
+        file.get_uri(), width, height
+    );
 }

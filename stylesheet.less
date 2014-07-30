@@ -1,0 +1,28 @@
+@width: 30em;
+@icon-size: 1.5em;
+@menu-padding: 1em;
+
+.clipboard-indicator-menu {
+    width: @width;
+    max-width: @width;
+
+    .clipboard-indicator-placeholder {
+        font-style: italic;
+        opacity: 0.8;
+    }
+
+    .clipboard-indicator-section-title {
+        font-weight: bold;
+    }
+
+    .clipboard-indicator-remove-icon {
+        icon-size: @icon-size;
+        padding-left: ((@width / 2) - (@menu-padding * 2)) - (@icon-size);
+        opacity: 1;
+
+        &:drag-hover {
+            color: #ff0000;
+        }
+    }
+}
+

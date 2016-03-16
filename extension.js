@@ -311,7 +311,7 @@ const ClipboardIndicator = Lang.Class({
             let registry = that.clipItemsRadioGroup.map(function (menuItem) {
                 return menuItem.getText();
             });
-            if (text) {
+            if (text.trim()) {
                 let index = registry.indexOf(text);
                 if (index === -1) {
                     that._addEntry({
